@@ -54,15 +54,9 @@ async def async_setup_entry(
     async_add_entities([entity], True)
 
 
-class LocalCalendarEntity(CalendarEntity):
-    """A calendar entity backed by a local iCalendar file."""
-
+class LocalCalendarEntityBase(CalendarEntity):
+    """Base class for a calendar entity backed by a local iCalendar file."""
     _attr_has_entity_name = True
-    _attr_supported_features = (
-        CalendarEntityFeature.CREATE_EVENT
-        | CalendarEntityFeature.DELETE_EVENT
-        | CalendarEntityFeature.UPDATE_EVENT
-    )
 
     def __init__(
         self,
@@ -101,6 +95,16 @@ class LocalCalendarEntity(CalendarEntity):
             self._event = _get_calendar_event(event)
         else:
             self._event = None
+
+
+class LocalCalendarEntity(LocalCalendarEntityBase):
+    """A calendar entity backed by a local iCalendar file."""
+
+    _attr_supported_features = (
+        CalendarEntityFeature.CREATE_EVENT
+        | CalendarEntityFeature.DELETE_EVENT
+        | CalendarEntityFeature.UPDATE_EVENT
+    )
 
     async def _async_store(self) -> None:
         """Persist the calendar to disk."""
