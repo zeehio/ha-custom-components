@@ -7,13 +7,15 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.helpers import config_validation as cv
 from homeassistant.util import slugify
 
-from .const import CONF_CALENDAR_NAME, CONF_STORAGE_KEY, DOMAIN
+from .const import CONF_CALENDAR_NAME, CONF_CALENDAR_URL, CONF_STORAGE_KEY, DOMAIN
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_CALENDAR_NAME): str,
+        vol.Optional(CONF_CALENDAR_URL): cv.url,
     }
 )
 

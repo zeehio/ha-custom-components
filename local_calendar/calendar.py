@@ -30,12 +30,22 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_CALENDAR_NAME, DOMAIN
+from .const import CONF_CALENDAR_NAME, CONF_CALENDAR_URL, DOMAIN
 from .store import LocalCalendarStore
 
 _LOGGER = logging.getLogger(__name__)
 
 PRODID = "-//homeassistant.io//local_calendar 1.0//EN"
+
+
+async def _fetch_calendar(hass: HomeAssistant, url: str, client=None) -> Calendar:
+    if client is None:
+        client = get_async_client(hass)
+    res = await client.get(url)
+    res.raise_for_status()
+    return await hass.async_add_executor_job(
+        IcsCalendarStream.calendar_from_ics, res.text
+    )
 
 
 async def async_setup_entry(
@@ -44,21 +54,37 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the local calendar platform."""
-    # TODO: If config_entry has url...
     store = hass.data[DOMAIN][config_entry.entry_id]
-    ics = await store.async_load()
-    calendar: Calendar = await hass.async_add_executor_job(
-        IcsCalendarStream.calendar_from_ics, ics
-    )
-    calendar.prodid = PRODID
-
     name = config_entry.data[CONF_CALENDAR_NAME]
-    entity = LocalCalendarEntity(store, calendar, name, unique_id=config_entry.entry_id)
+    url = config_entry.data.get(CONF_CALENDAR_URL)
+    if url:
+        calendar: Calendar = await _fetch_calendar(hass, url)
+        content = await hass.async_add_executor_job(
+            IcsCalendarStream.calendar_to_ics, calendar
+        )
+        await store.async_store(content)
+        entity = RemoteCalendarEntity(
+            store,
+            calendar,
+            name,
+            unique_id=config_entry.entry_id,
+            url=url,
+        )
+    else:
+        ics = await store.async_load()
+        calendar: Calendar = await hass.async_add_executor_job(
+            IcsCalendarStream.calendar_from_ics, ics
+        )
+        calendar.prodid = PRODID
+        entity = LocalCalendarEntity(
+            store, calendar, name, unique_id=config_entry.entry_id
+        )
     async_add_entities([entity], True)
 
 
 class ReadOnlyLocalCalendarEntity(CalendarEntity):
     """Class for a read-only calendar entity backed by a local iCalendar file."""
+
     _attr_has_entity_name = True
 
     def __init__(
@@ -104,8 +130,10 @@ class ReadOnlyLocalCalendarEntity(CalendarEntity):
         content = IcsCalendarStream.calendar_to_ics(self._calendar)
         await self._store.async_store(content)
 
+
 class RemoteCalendarEntity(ReadOnlyLocalCalendarEntity):
     """A read-only calendar that we get and refresh from a url"""
+
     def __init__(
         self,
         store: LocalCalendarStore,
@@ -113,23 +141,20 @@ class RemoteCalendarEntity(ReadOnlyLocalCalendarEntity):
         name: str,
         unique_id: str,
         url: str,
-    ) -> None: 
+    ) -> None:
         super().__init__(store, calendar, name, unique_id)
         self._url = url
-        self._client = get_async_client(hass, verify_ssl=True)
+        self._client = get_async_client(self.hass, verify_ssl=True)
         self._track_fetch = async_track_time_interval(
-            hass,
-            lambda now: hass.loop.create_task(self._fetch_calendar()),
-            timedelta(days=1)
+            self.hass,
+            lambda now: self.hass.loop.create_task(self._fetch_calendar()),
+            timedelta(hours=6),
         )
 
     async def _fetch_calendar(self):
-        resp = await self._client.get(self._url)
-        resp.raise_for_status()
-        self._calendar = IcsCalendarStream.calendar_from_ics(resp.text)
+        self._calendar = await _fetch_calendar(self.hass, self._url, self._client)
         await self._async_store()
         await self.async_update_ha_state(force_refresh=True)
-
 
 
 class LocalCalendarEntity(ReadOnlyLocalCalendarEntity):
