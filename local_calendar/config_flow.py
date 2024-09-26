@@ -10,17 +10,36 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers.httpx_client import get_async_client
-from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
+from homeassistant.helpers.selector import (
+    DurationSelector,
+    DurationSelectorConfig,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 from homeassistant.util import slugify
 
-from .const import CONF_CALENDAR_NAME, CONF_CALENDAR_URL, CONF_STORAGE_KEY, DOMAIN
+from .const import (
+    CONF_CALENDAR_NAME,
+    CONF_CALENDAR_URL,
+    CONF_STORAGE_KEY,
+    CONF_SYNC_INTERVAL,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_CALENDAR_NAME): str,
-        vol.Optional(CONF_CALENDAR_URL): TextSelector(TextSelectorConfig(type=TextSelectorType.URL)),
+        vol.Optional(CONF_CALENDAR_URL): TextSelector(
+            TextSelectorConfig(type=TextSelectorType.URL)
+        ),
+        vol.Optional(CONF_SYNC_INTERVAL): DurationSelector(
+            DurationSelectorConfig(
+                enable_day=True, enable_millisecond=False, allow_negative=False
+            )
+        ),
     }
 )
 
@@ -49,13 +68,11 @@ class LocalCalendarConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_show_form(
                     step_id="user",
                     data_schema=self.add_suggested_values_to_schema(
-                        data_schema=STEP_USER_DATA_SCHEMA,
-                        suggested_values=user_input
+                        data_schema=STEP_USER_DATA_SCHEMA, suggested_values=user_input
                     ),
                     errors={CONF_CALENDAR_URL: "invalid_url"},
                     last_step=True,
                 )
-            _LOGGER.warn("fetching url")
             client = get_async_client(self.hass)
             res = await client.get(url)
             try:
@@ -64,8 +81,7 @@ class LocalCalendarConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_show_form(
                     step_id="user",
                     data_schema=self.add_suggested_values_to_schema(
-                        data_schema=STEP_USER_DATA_SCHEMA,
-                        suggested_values=user_input
+                        data_schema=STEP_USER_DATA_SCHEMA, suggested_values=user_input
                     ),
                     errors={CONF_CALENDAR_URL: "cannot_connect"},
                     last_step=True,
