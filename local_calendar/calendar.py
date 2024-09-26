@@ -47,6 +47,11 @@ async def async_setup_entry(
 ) -> None:
     """Set up the local calendar platform."""
     store = hass.data[DOMAIN][config_entry.entry_id]
+    ics = await store.async_load()
+    calendar: Calendar = await hass.async_add_executor_job(
+        IcsCalendarStream.calendar_from_ics, ics
+    )
+    calendar.prodid = PRODID
     name = config_entry.data[CONF_CALENDAR_NAME]
     url = config_entry.data.get(CONF_CALENDAR_URL)
     if url:
@@ -55,28 +60,23 @@ async def async_setup_entry(
             update_interval = timedelta(**update_interval)
         else:
             update_interval = DEFAULT_SYNC_INTERVAL
-        if update_interval < MIN_SYNC_INTERVAL:
-            update_interval = MIN_SYNC_INTERVAL
-        entity = RemoteCalendarEntity(
+        update_interval = max(update_interval, MIN_SYNC_INTERVAL)
+        entity: LocalCalendarEntityBase = RemoteCalendarEntity(
             store,
+            calendar,
             name,
             unique_id=config_entry.entry_id,
             url=url,
             update_interval=update_interval,
         )
     else:
-        ics = await store.async_load()
-        calendar: Calendar = await hass.async_add_executor_job(
-            IcsCalendarStream.calendar_from_ics, ics
-        )
-        calendar.prodid = PRODID
         entity = LocalCalendarEntity(
             store, calendar, name, unique_id=config_entry.entry_id
         )
     async_add_entities([entity], True)
 
 
-class ReadOnlyLocalCalendarEntity(CalendarEntity):
+class LocalCalendarEntityBase(CalendarEntity):
     """Class for a read-only calendar entity backed by a local iCalendar file."""
 
     _attr_has_entity_name = True
@@ -88,7 +88,7 @@ class ReadOnlyLocalCalendarEntity(CalendarEntity):
         name: str,
         unique_id: str,
     ) -> None:
-        """Initialize LocalCalendarEntity."""
+        """Initialize LocalCalendarEntityBase."""
         self._store = store
         self._calendar = calendar
         self._event: CalendarEvent | None = None
@@ -125,18 +125,20 @@ class ReadOnlyLocalCalendarEntity(CalendarEntity):
         await self._store.async_store(content)
 
 
-class RemoteCalendarEntity(ReadOnlyLocalCalendarEntity):
-    """A read-only calendar that we get and refresh from a url"""
+class RemoteCalendarEntity(LocalCalendarEntityBase):
+    """A read-only calendar that we get and refresh from a url."""
 
     def __init__(
         self,
         store: LocalCalendarStore,
+        calendar: Calendar,
         name: str,
         unique_id: str,
         url: str,
         update_interval: timedelta,
     ) -> None:
-        super().__init__(store, None, name, unique_id)
+        """Initialize a remote read-only calendar."""
+        super().__init__(store, calendar, name, unique_id)
         self._url = url
         self._client = None
         self._track_fetch = None
@@ -163,6 +165,7 @@ class RemoteCalendarEntity(ReadOnlyLocalCalendarEntity):
         await self.async_update_ha_state(force_refresh=True)
 
     async def async_added_to_hass(self):
+        """Once initialized, get the calendar, and schedule future updates."""
         self._client = get_async_client(self.hass)
         self.hass.loop.create_task(self._fetch_calendar_and_update())
         self._track_fetch = async_track_time_interval(
@@ -172,18 +175,12 @@ class RemoteCalendarEntity(ReadOnlyLocalCalendarEntity):
         )
 
     async def async_will_remove_from_hass(self):
+        """If the entity is removed, we do not need to keep fetching the calendar."""
         if self._track_fetch is not None:
             self._track_fetch()
 
-    async def async_update(self) -> None:
-        if self._calendar is None:
-            # async_added_to_hass has not set _calendar yet
-            # async_added_to_hass will update the entity
-            return
-        await super().async_update()
 
-
-class LocalCalendarEntity(ReadOnlyLocalCalendarEntity):
+class LocalCalendarEntity(LocalCalendarEntityBase):
     """A calendar entity backed by a local iCalendar file."""
 
     _attr_supported_features = (
