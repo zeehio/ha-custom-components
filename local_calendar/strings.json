@@ -1,6 +1,10 @@
 {
   "title": "Local Calendar",
   "config": {
+    "error": {
+      "cannot_connect": "can't connect to URL",
+      "invalid_url": "Invalid URL"
+    },
     "step": {
       "user": {
         "description": "Please choose a name for your new calendar",
