@@ -26,6 +26,12 @@ from telegram.ext import CallbackContext, filters
 from telegram.request import HTTPXRequest
 import voluptuous as vol
 
+try:
+    from md2tgmd import escape
+except ImportError:
+    def escape(x):
+        return x
+
 from homeassistant.const import (
     ATTR_COMMAND,
     ATTR_LATITUDE,
@@ -736,6 +742,7 @@ class TelegramNotificationService:
         title = kwargs.get(ATTR_TITLE)
         text = f"{title}\n{message}" if title else message
         params = self._get_msg_kwargs(kwargs)
+        text = escape(text)
         for chat_id in self._get_target_chat_ids(target):
             _LOGGER.debug("Send message in chat ID %s with params: %s", chat_id, params)
             await self._send_msg(
